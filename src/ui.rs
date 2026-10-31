@@ -80,11 +80,6 @@ impl Component for KeyRemapperApp {
             hook_running: running,
         };
 
-        if std::env::args().any(|argument| argument == "--open-dialog") {
-            app.dialog_open = true;
-            log::write("app create: dialog opened by flag");
-        }
-
         if app.enabled && !app.mappings.is_empty() && !app.hook_running {
             app.set_status("键盘钩子安装失败，映射未生效。", InfoBarSeverity::Error);
         }
@@ -126,10 +121,7 @@ impl Component for KeyRemapperApp {
                 self.capturing = None;
                 // 捕获依赖低级键盘钩子，即使当前没有规则也要先把钩子装上。
                 if !self.hook.start() {
-                    self.set_status(
-                        "键盘钩子安装失败，无法捕获按键。",
-                        InfoBarSeverity::Error,
-                    );
+                    self.set_status("键盘钩子安装失败，无法捕获按键。", InfoBarSeverity::Error);
                 }
                 // 弹窗期间暂停映射，保证捕获到的是物理按键。
                 self.hook.set_paused(true);
@@ -254,15 +246,11 @@ impl Component for KeyRemapperApp {
         log_view();
         context.window_title("键盘映射");
 
-        let stage = stage();
-        let mut visuals = WindowVisuals::new().client_size(620.0, 700.0);
-        if stage >= 2 {
-            visuals = visuals.backdrop(WindowBackdrop::Mica);
-        }
-        if stage >= 3 {
-            if let Some(icon) = app_icon() {
-                visuals = visuals.icon(icon);
-            }
+        let mut visuals = WindowVisuals::new()
+            .backdrop(WindowBackdrop::Mica)
+            .client_size(620.0, 700.0);
+        if let Some(icon) = app_icon() {
+            visuals = visuals.icon(icon);
         }
         context.window_visuals(visuals);
 
@@ -282,7 +270,11 @@ impl Component for KeyRemapperApp {
             .is_on(self.enabled)
             .vertical_alignment(VerticalAlignment::Center)
             .on_toggled(context.callback(Msg::EnableToggled))
-            .slot(ToggleSwitchSlot::Header, "启用映射");
+            .slots([
+                SlotView::new(ToggleSwitchSlot::Header, "启用映射"),
+                SlotView::new(ToggleSwitchSlot::OnContent, ""),
+                SlotView::new(ToggleSwitchSlot::OffContent, ""),
+            ]);
 
         let header = Border::new()
             .grid_row(0)
@@ -348,6 +340,7 @@ impl Component for KeyRemapperApp {
                         .text("还没有映射规则。点击下方「添加映射」：先按要被替换的键，再按想要的键，映射立即生效、无需重启。")
                         .text_wrapping(TextWrapping::Wrap)
                         .horizontal_alignment(HorizontalAlignment::Center)
+                        .vertical_alignment(VerticalAlignment::Center)
                         .opacity(0.7),
                 )
         } else {
@@ -366,18 +359,16 @@ impl Component for KeyRemapperApp {
         };
 
         // ---- 系统级映射 ----
-        let expander_header = StackPanel::new().spacing(2.0).children((
-            TextBlock::new()
-                .text("系统级映射（写入系统，无需运行本软件）")
-                .font_weight(FontWeight::SEMI_BOLD),
+        let expander_header = TextBlock::new()
+            .text("系统级映射（写入系统，无需运行本软件）")
+            .font_weight(FontWeight::SEMI_BOLD);
+
+        let expander_content = StackPanel::new().spacing(12.0).children((
             TextBlock::new()
                 .text("写入键盘驱动层（注册表 Scancode Map），重启电脑后永久生效；之后无需开机自启、不运行任何软件也保持映射。需要管理员权限。")
                 .font_size(12.0)
                 .opacity(0.75)
                 .text_wrapping(TextWrapping::Wrap),
-        ));
-
-        let expander_content = StackPanel::new().spacing(12.0).children((
             StackPanel::new()
                 .orientation(Orientation::Horizontal)
                 .spacing(8.0)
@@ -439,26 +430,13 @@ impl Component for KeyRemapperApp {
                             .vertical_alignment(VerticalAlignment::Center)
                             .is_on(self.autostart)
                             .on_toggled(context.callback(Msg::AutoStartToggled))
-                            .slot(ToggleSwitchSlot::Header, "开机自启"),
+                            .slots([
+                                SlotView::new(ToggleSwitchSlot::Header, "开机自启"),
+                                SlotView::new(ToggleSwitchSlot::OnContent, ""),
+                                SlotView::new(ToggleSwitchSlot::OffContent, ""),
+                            ]),
                     )),
             );
-
-        let mut children: Vec<(u32, View)> = Vec::new();
-        if stage >= 4 {
-            children.push((0, header));
-        }
-        if stage >= 5 {
-            children.push((1, bars_area));
-        }
-        if stage >= 6 {
-            children.push((2, list));
-        }
-        if stage >= 7 {
-            children.push((3, expander));
-        }
-        if stage >= 8 {
-            children.push((4, footer));
-        }
 
         // ---- 添加映射弹窗 ----
         let from_label = match (self.capturing, self.from_vk) {
@@ -499,26 +477,27 @@ impl Component for KeyRemapperApp {
             .on_closed(context.callback(Msg::DialogClosed))
             .content(dialog_panel);
 
-        // 9 = 旧的 fragment 方案（会崩，仅用于回归对比）；其余情况把对话框挂在根 Grid 下。
-        if stage == 9 {
-            let root = Grid::new()
-                .rows(ROWS)
-                .keyed_children(children);
-            return View::fragment((root, dialog));
-        }
+        // 对话框必须作为普通容器的子节点参与协调：放进 fragment 会让 WinUI 抛异常直接退出。
+        let children: Vec<(u32, View)> = vec![
+            (0, header),
+            (1, bars_area),
+            (2, list),
+            (3, expander),
+            (4, footer),
+            (5, dialog),
+        ];
 
-        children.push((5, dialog));
-        Grid::new().rows(ROWS).keyed_children(children)
+        Grid::new()
+            .rows([
+                GridLength::Auto,
+                GridLength::Auto,
+                GridLength::Star(1.0),
+                GridLength::Auto,
+                GridLength::Auto,
+            ])
+            .keyed_children(children)
     }
 }
-
-const ROWS: [GridLength; 5] = [
-    GridLength::Auto,
-    GridLength::Auto,
-    GridLength::Star(1.0),
-    GridLength::Auto,
-    GridLength::Auto,
-];
 
 impl KeyRemapperApp {
     fn apply_all(&mut self) {
@@ -658,14 +637,4 @@ impl Component for MinimalApp {
             .text("最小界面：看到这个窗口说明 WinUI 运行时正常。")
             .into()
     }
-}
-
-static STAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(99);
-
-pub fn set_stage(stage: u32) {
-    STAGE.store(stage, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn stage() -> u32 {
-    STAGE.load(std::sync::atomic::Ordering::Relaxed)
 }
