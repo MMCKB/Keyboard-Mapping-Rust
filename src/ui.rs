@@ -260,7 +260,7 @@ impl Component for KeyRemapperApp {
             .font_size(28.0)
             .font_weight(FontWeight::SEMI_BOLD);
         let subtitle = TextBlock::new()
-            .text("把某个按键即时替换成另一个按键，例如 Caps Lock → Esc。")
+            .text("把某个按键即时替换成另一个按键，如 Caps Lock → Esc。")
             .font_size(13.0)
             .opacity(0.75)
             .text_wrapping(TextWrapping::Wrap);

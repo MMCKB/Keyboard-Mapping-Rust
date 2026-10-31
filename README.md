@@ -85,6 +85,13 @@ cargo build --release
   仅支持有物理扫描码的按键。
 - 两种模式可并存：即时映射收到的是系统级映射**之后**的按键。
 
+## 故障排查
+
+- 启动日志：`%LOCALAPPDATA%\KeyRemapper\startup.log`，记录启动各阶段与 panic 信息；
+  程序打不开时先看这个文件。
+- 只想确认运行时是否正常：运行 `KeyRemapper.exe --minimal`，它只打开一个最小窗口。
+- 若提示缺少 Windows App Runtime，请安装 2.4 或更高版本后再启动。
+
 ## 许可
 
 MIT，与原项目一致。图标资源沿用原项目 `Assets/app.ico`。
