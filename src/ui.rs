@@ -24,7 +24,8 @@ pub enum Msg {
     AutoStartToggled(bool),
     AddClicked,
     Delete(u16),
-    DialogClosed(ContentDialogResult),
+    ConfirmDialog,
+    CancelDialog,
     ArmCapture(Target),
     Captured(Target, Option<u16>),
     ApplyScanmap,
@@ -130,38 +131,35 @@ impl Component for KeyRemapperApp {
                 self.mappings.retain(|mapping| mapping.from_vk != from_vk);
                 self.apply_all();
             }
-            Msg::DialogClosed(result) => {
-                self.dialog_open = false;
-                self.capturing = None;
-                self.hook.clear_capture();
-                self.hook.set_paused(false);
-                self.refresh_hook();
+            Msg::ConfirmDialog => {
+                self.close_dialog();
 
-                if matches!(result, ContentDialogResult::Primary) {
-                    match (self.from_vk, self.to_vk) {
-                        (Some(from_vk), Some(to_vk)) if from_vk == to_vk => {
-                            self.set_status(
-                                "原始按键和目标按键相同，无需映射。",
-                                InfoBarSeverity::Error,
-                            );
-                        }
-                        (Some(from_vk), Some(to_vk)) => {
-                            self.mappings.retain(|mapping| mapping.from_vk != from_vk);
-                            self.mappings.push(KeyMapping {
-                                from_vk,
-                                from_name: keys::name(from_vk),
-                                to_vk,
-                                to_name: keys::name(to_vk),
-                            });
-                            self.apply_all();
-                            self.set_status("已添加映射，立即生效。", InfoBarSeverity::Success);
-                        }
-                        _ => self.set_status(
-                            "请先分别捕获原始按键和目标按键。",
+                match (self.from_vk, self.to_vk) {
+                    (Some(from_vk), Some(to_vk)) if from_vk == to_vk => {
+                        self.set_status(
+                            "原始按键和目标按键相同，无需映射。",
                             InfoBarSeverity::Error,
-                        ),
+                        );
                     }
+                    (Some(from_vk), Some(to_vk)) => {
+                        self.mappings.retain(|mapping| mapping.from_vk != from_vk);
+                        self.mappings.push(KeyMapping {
+                            from_vk,
+                            from_name: keys::name(from_vk),
+                            to_vk,
+                            to_name: keys::name(to_vk),
+                        });
+                        self.apply_all();
+                        self.set_status("已添加映射，立即生效。", InfoBarSeverity::Success);
+                    }
+                    _ => self.set_status(
+                        "请先分别捕获原始按键和目标按键。",
+                        InfoBarSeverity::Error,
+                    ),
                 }
+            }
+            Msg::CancelDialog => {
+                self.close_dialog();
             }
             Msg::ArmCapture(target) => {
                 self.capturing = Some(target);
@@ -461,42 +459,75 @@ impl Component for KeyRemapperApp {
             _ => "点击后按下按键".to_string(),
         };
 
-        let dialog_panel = StackPanel::new().spacing(6.0).children((
-            TextBlock::new().text("原始按键（会被拦截的键）"),
+        let dialog_panel = StackPanel::new().spacing(10.0).children((
+            TextBlock::new()
+                .text("添加按键映射")
+                .font_size(20.0)
+                .font_weight(FontWeight::SEMI_BOLD),
+            TextBlock::new()
+                .text("原始按键（会被拦截的键）")
+                .font_size(12.0)
+                .opacity(0.75),
             Button::new()
                 .on_click(context.callback(move |_: ()| Msg::ArmCapture(Target::From)))
                 .content(from_label),
             TextBlock::new()
                 .text("目标按键（替换成的键）")
-                .margin(Thickness::new(0.0, 12.0, 0.0, 0.0)),
+                .font_size(12.0)
+                .opacity(0.75),
             Button::new()
                 .on_click(context.callback(move |_: ()| Msg::ArmCapture(Target::To)))
                 .content(to_label),
             TextBlock::new()
-                .text("点下方按钮后按下按键即可捕获（Esc、修饰键也可作为目标）；再点一次可重新捕获。当前版本一次映射一个键，不支持组合键。")
+                .text("点按钮后按下按键即可捕获（Esc、修饰键也可作为目标）；再点一次可重新捕获。当前版本一次映射一个键，不支持组合键。")
                 .font_size(12.0)
-                .opacity(0.75)
-                .text_wrapping(TextWrapping::Wrap)
-                .margin(Thickness::new(0.0, 12.0, 0.0, 0.0)),
+                .opacity(0.6)
+                .text_wrapping(TextWrapping::Wrap),
+            StackPanel::new()
+                .orientation(Orientation::Horizontal)
+                .spacing(8.0)
+                .horizontal_alignment(HorizontalAlignment::Right)
+                .children((
+                    Button::new()
+                        .style(ButtonStyle::Accent)
+                        .on_click(context.message(Msg::ConfirmDialog))
+                        .content("确定"),
+                    Button::new()
+                        .style(ButtonStyle::Subtle)
+                        .on_click(context.message(Msg::CancelDialog))
+                        .content("取消"),
+                )),
         ));
 
-        let dialog = ContentDialog::new()
-            .title("添加按键映射")
-            .primary_button_text("确定")
-            .close_button_text("取消")
-            .is_open(self.dialog_open)
-            .on_closed(context.callback(Msg::DialogClosed))
-            .content(dialog_panel);
+        // 弹窗用页面内浮层实现：ContentDialog 在非打包 WinUI 里需要 XamlRoot，
+        // 作为普通子节点挂载时无法弹出（fragment 方式则会直接崩溃）。
+        let overlay: View = Border::new()
+            .grid_row(0)
+            .grid_row_span(5)
+            .background(ThemeBrush::SolidBackground)
+            .content(
+                Border::new()
+                    .width(440.0)
+                    .horizontal_alignment(HorizontalAlignment::Center)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .background(ThemeBrush::CardBackground)
+                    .border_brush(ThemeBrush::CardStroke)
+                    .border_thickness(Thickness::uniform(1.0))
+                    .corner_radius(CornerRadius::uniform(8.0))
+                    .padding(Thickness::uniform(20.0))
+                    .content(dialog_panel),
+            );
 
-        // 对话框必须作为普通容器的子节点参与协调：放进 fragment 会让 WinUI 抛异常直接退出。
-        let children: Vec<(u32, View)> = vec![
+        let mut children: Vec<(u32, View)> = vec![
             (0, header),
             (1, bars_area),
             (2, list),
             (3, expander),
             (4, footer),
-            (5, dialog),
         ];
+        if self.dialog_open {
+            children.push((5, overlay));
+        }
 
         Grid::new()
             .rows([
@@ -531,6 +562,14 @@ impl KeyRemapperApp {
             self.hook.stop();
             self.hook_running = false;
         }
+    }
+
+    fn close_dialog(&mut self) {
+        self.dialog_open = false;
+        self.capturing = None;
+        self.hook.clear_capture();
+        self.hook.set_paused(false);
+        self.refresh_hook();
     }
 
     fn set_status(&mut self, message: impl Into<String>, severity: InfoBarSeverity) {
