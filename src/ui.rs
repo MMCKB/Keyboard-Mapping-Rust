@@ -80,6 +80,11 @@ impl Component for KeyRemapperApp {
             hook_running: running,
         };
 
+        if std::env::args().any(|argument| argument == "--open-dialog") {
+            app.dialog_open = true;
+            log::write("app create: dialog opened by flag");
+        }
+
         if app.enabled && !app.mappings.is_empty() && !app.hook_running {
             app.set_status("键盘钩子安装失败，映射未生效。", InfoBarSeverity::Error);
         }
@@ -455,16 +460,6 @@ impl Component for KeyRemapperApp {
             children.push((4, footer));
         }
 
-        let root = Grid::new()
-            .rows([
-                GridLength::Auto,
-                GridLength::Auto,
-                GridLength::Star(1.0),
-                GridLength::Auto,
-                GridLength::Auto,
-            ])
-            .keyed_children(children);
-
         // ---- 添加映射弹窗 ----
         let from_label = match (self.capturing, self.from_vk) {
             (Some(Target::From), _) => "请按下按键…".to_string(),
@@ -504,13 +499,26 @@ impl Component for KeyRemapperApp {
             .on_closed(context.callback(Msg::DialogClosed))
             .content(dialog_panel);
 
-        if stage >= 9 {
-            View::fragment((root, dialog))
-        } else {
-            root
+        // 9 = 旧的 fragment 方案（会崩，仅用于回归对比）；其余情况把对话框挂在根 Grid 下。
+        if stage == 9 {
+            let root = Grid::new()
+                .rows(ROWS)
+                .keyed_children(children);
+            return View::fragment((root, dialog));
         }
+
+        children.push((5, dialog));
+        Grid::new().rows(ROWS).keyed_children(children)
     }
 }
+
+const ROWS: [GridLength; 5] = [
+    GridLength::Auto,
+    GridLength::Auto,
+    GridLength::Star(1.0),
+    GridLength::Auto,
+    GridLength::Auto,
+];
 
 impl KeyRemapperApp {
     fn apply_all(&mut self) {
