@@ -132,6 +132,13 @@ impl HookService {
         self.release_held();
     }
 
+    /// 放弃当前捕获（弹窗关闭时调用），等待中的捕获会立刻返回 None。
+    pub fn clear_capture(&self) {
+        if let Ok(mut slot) = self.capture.lock() {
+            *slot = None;
+        }
+    }
+
     /// 等待下一次物理按键；`is_cancelled` 返回 true 时放弃。
     pub fn capture_next(&self, is_cancelled: impl Fn() -> bool) -> Option<u16> {
         let (sender, receiver) = mpsc::channel();

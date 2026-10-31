@@ -112,6 +112,13 @@ impl Component for KeyRemapperApp {
                 self.from_vk = None;
                 self.to_vk = None;
                 self.capturing = None;
+                // 捕获依赖低级键盘钩子，即使当前没有规则也要先把钩子装上。
+                if !self.hook.start() {
+                    self.set_status(
+                        "键盘钩子安装失败，无法捕获按键。",
+                        InfoBarSeverity::Error,
+                    );
+                }
                 // 弹窗期间暂停映射，保证捕获到的是物理按键。
                 self.hook.set_paused(true);
             }
@@ -122,7 +129,9 @@ impl Component for KeyRemapperApp {
             Msg::DialogClosed(result) => {
                 self.dialog_open = false;
                 self.capturing = None;
+                self.hook.clear_capture();
                 self.hook.set_paused(false);
+                self.refresh_hook();
 
                 if matches!(result, ContentDialogResult::Primary) {
                     match (self.from_vk, self.to_vk) {
@@ -476,7 +485,10 @@ impl KeyRemapperApp {
             enabled: self.enabled,
             mappings: self.mappings.clone(),
         });
+        self.refresh_hook();
+    }
 
+    fn refresh_hook(&mut self) {
         self.hook.set_mappings(&self.mappings);
 
         if self.enabled && !self.mappings.is_empty() {
