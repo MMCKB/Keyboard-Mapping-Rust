@@ -29,6 +29,16 @@ fn main() {
         return;
     }
 
+    if let Some(value) = arguments
+        .iter()
+        .find_map(|argument| argument.strip_prefix("--stage="))
+    {
+        if let Ok(stage) = value.parse::<u32>() {
+            ui::set_stage(stage);
+            log::write(&format!("stage={stage}"));
+        }
+    }
+
     let minimal = arguments.iter().any(|argument| argument == "--minimal");
     log::write(if minimal {
         "run_component: minimal"

@@ -249,11 +249,15 @@ impl Component for KeyRemapperApp {
         log_view();
         context.window_title("键盘映射");
 
-        let mut visuals = WindowVisuals::new()
-            .backdrop(WindowBackdrop::Mica)
-            .client_size(620.0, 700.0);
-        if let Some(icon) = app_icon() {
-            visuals = visuals.icon(icon);
+        let stage = stage();
+        let mut visuals = WindowVisuals::new().client_size(620.0, 700.0);
+        if stage >= 2 {
+            visuals = visuals.backdrop(WindowBackdrop::Mica);
+        }
+        if stage >= 3 {
+            if let Some(icon) = app_icon() {
+                visuals = visuals.icon(icon);
+            }
         }
         context.window_visuals(visuals);
 
@@ -434,6 +438,23 @@ impl Component for KeyRemapperApp {
                     )),
             );
 
+        let mut children: Vec<(u32, View)> = Vec::new();
+        if stage >= 4 {
+            children.push((0, header));
+        }
+        if stage >= 5 {
+            children.push((1, bars_area));
+        }
+        if stage >= 6 {
+            children.push((2, list));
+        }
+        if stage >= 7 {
+            children.push((3, expander));
+        }
+        if stage >= 8 {
+            children.push((4, footer));
+        }
+
         let root = Grid::new()
             .rows([
                 GridLength::Auto,
@@ -442,7 +463,7 @@ impl Component for KeyRemapperApp {
                 GridLength::Auto,
                 GridLength::Auto,
             ])
-            .children((header, bars_area, list, expander, footer));
+            .keyed_children(children);
 
         // ---- 添加映射弹窗 ----
         let from_label = match (self.capturing, self.from_vk) {
@@ -483,7 +504,11 @@ impl Component for KeyRemapperApp {
             .on_closed(context.callback(Msg::DialogClosed))
             .content(dialog_panel);
 
-        View::fragment((root, dialog))
+        if stage >= 9 {
+            View::fragment((root, dialog))
+        } else {
+            root
+        }
     }
 }
 
@@ -625,4 +650,14 @@ impl Component for MinimalApp {
             .text("最小界面：看到这个窗口说明 WinUI 运行时正常。")
             .into()
     }
+}
+
+static STAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(99);
+
+pub fn set_stage(stage: u32) {
+    STAGE.store(stage, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn stage() -> u32 {
+    STAGE.load(std::sync::atomic::Ordering::Relaxed)
 }
