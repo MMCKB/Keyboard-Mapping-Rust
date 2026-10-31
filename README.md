@@ -59,7 +59,7 @@ cargo build --release
 ## 运行要求
 
 - Windows 10 1809 及以上 / Windows 11
-- 已安装 **Microsoft Windows App Runtime 2.x**（WinUI 3 运行时，Reactor 启动时自动解析该框架包）。
+- 已安装 **Microsoft Windows App Runtime 2.4 或更高版本**（WinUI 3 运行时，Reactor 启动时会解析并加载该框架包）。
   未安装时程序会提示并给出下载入口：<https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads>
 - 不再需要 .NET 运行时，发布产物只有一个 exe + `Assets\app.ico`
 
