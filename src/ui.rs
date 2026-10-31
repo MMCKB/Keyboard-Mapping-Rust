@@ -13,13 +13,13 @@ use crate::settings::{self, AppSettings, KeyMapping};
 use crate::{autostart, keys};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Target {
+pub enum Target {
     From,
     To,
 }
 
 #[derive(Clone)]
-enum Msg {
+pub enum Msg {
     EnableToggled(bool),
     AutoStartToggled(bool),
     AddClicked,
