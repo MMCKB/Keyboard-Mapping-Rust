@@ -1,0 +1,77 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: '创建 GitHub Release 并上传构建产物'
+        type: boolean
+        default: true
+      version:
+        description: 'Release 版本号（留空自动生成 v1.0.<运行编号>）'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Show toolchain
+        run: rustc --version --verbose
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path publish/Assets | Out-Null
+          Copy-Item target/release/KeyRemapper.exe publish/KeyRemapper.exe
+          if (Test-Path assets/app.ico.b64) {
+            $icon = (Get-Content assets/app.ico.b64 -Raw).Trim()
+            [IO.File]::WriteAllBytes("$PWD/publish/Assets/app.ico", [Convert]::FromBase64String($icon))
+          }
+          Copy-Item README.md publish/README.md
+          Copy-Item LICENSE publish/LICENSE
+          Compress-Archive -Path publish/* -DestinationPath KeyRemapper-win-x64.zip -Force
+          Get-ChildItem publish -Recurse | Select-Object FullName, Length
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyRemapper-win-x64
+          path: KeyRemapper-win-x64.zip
+
+      - name: Create Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.version }}".Trim()
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "v1.0.$($env:GITHUB_RUN_NUMBER)" }
+          gh release create "$tag" "KeyRemapper-win-x64.zip" --title "键盘映射（Rust） $tag" --generate-notes
+          Write-Host "Release $tag 已创建"
