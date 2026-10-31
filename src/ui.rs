@@ -10,7 +10,7 @@ use windows_reactor::*;
 use crate::hook::HookService;
 use crate::scanmap::{self, ScanmapError};
 use crate::settings::{self, AppSettings, KeyMapping};
-use crate::{autostart, keys};
+use crate::{autostart, keys, log};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -56,6 +56,7 @@ impl Component for KeyRemapperApp {
     type Message = Msg;
 
     fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
+        log::write("app create: begin");
         let settings = settings::load();
         let hook = HookService::global();
         hook.set_mappings(&settings.mappings);
@@ -83,6 +84,12 @@ impl Component for KeyRemapperApp {
             app.set_status("键盘钩子安装失败，映射未生效。", InfoBarSeverity::Error);
         }
 
+        log::write(&format!(
+            "app create: done mappings={} enabled={} hook_running={}",
+            app.mappings.len(),
+            app.enabled,
+            app.hook_running
+        ));
         app
     }
 
@@ -239,6 +246,7 @@ impl Component for KeyRemapperApp {
     }
 
     fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
+        log_view();
         context.window_title("键盘映射");
 
         let mut visuals = WindowVisuals::new()
@@ -586,4 +594,35 @@ fn app_icon() -> Option<&'static str> {
         let text = path.to_string_lossy().into_owned();
         Some(Box::leak(text.into_boxed_str()))
     })
+}
+
+fn log_view() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let count = COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if count <= 3 || count % 100 == 0 {
+        log::write(&format!("app view: publication {count}"));
+    }
+}
+
+/// 诊断用最小界面：只放一个 TextBlock，用来区分「运行时环境问题」和「界面构建问题」。
+pub struct MinimalApp;
+
+impl Component for MinimalApp {
+    type Input = ();
+    type Message = ();
+
+    fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
+        log::write("minimal create");
+        Self
+    }
+
+    fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
+        log::write("minimal view");
+        context.window_title("键盘映射（诊断）");
+        context.window_visuals(WindowVisuals::new().client_size(480.0, 220.0));
+        TextBlock::new()
+            .text("最小界面：看到这个窗口说明 WinUI 运行时正常。")
+            .into()
+    }
 }
