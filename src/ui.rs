@@ -270,16 +270,24 @@ impl Component for KeyRemapperApp {
             .text_wrapping(TextWrapping::Wrap);
         let title_block = StackPanel::new().spacing(2.0).children((title, subtitle));
 
-        let enable_switch = ToggleSwitch::new()
-            .is_on(self.enabled)
-            .min_height(52.0)
+        let enable_switch = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(8.0)
             .vertical_alignment(VerticalAlignment::Center)
-            .on_toggled(context.callback(Msg::EnableToggled))
-            .slots([
-                SlotView::new(ToggleSwitchSlot::Header, "启用映射"),
-                SlotView::new(ToggleSwitchSlot::OnContent, ""),
-                SlotView::new(ToggleSwitchSlot::OffContent, ""),
-            ]);
+            .horizontal_alignment(HorizontalAlignment::Right)
+            .children((
+                TextBlock::new()
+                    .text("启用映射")
+                    .vertical_alignment(VerticalAlignment::Center),
+                ToggleSwitch::new()
+                    .is_on(self.enabled)
+                    .min_width(0.0)
+                    .on_toggled(context.callback(Msg::EnableToggled))
+                    .slots([
+                        SlotView::new(ToggleSwitchSlot::OnContent, ""),
+                        SlotView::new(ToggleSwitchSlot::OffContent, ""),
+                    ]),
+            ));
 
         let header = Border::new()
             .grid_row(0)
@@ -443,17 +451,25 @@ impl Component for KeyRemapperApp {
                                         TextBlock::new().text("添加映射"),
                                     )),
                             ),
-                        ToggleSwitch::new()
+                        StackPanel::new()
                             .grid_column(2)
-                            .is_on(self.autostart)
-                            .min_height(52.0)
+                            .orientation(Orientation::Horizontal)
+                            .spacing(8.0)
                             .vertical_alignment(VerticalAlignment::Center)
-                            .on_toggled(context.callback(Msg::AutoStartToggled))
-                            .slots([
-                                SlotView::new(ToggleSwitchSlot::Header, "开机自启"),
-                                SlotView::new(ToggleSwitchSlot::OnContent, ""),
-                                SlotView::new(ToggleSwitchSlot::OffContent, ""),
-                            ]),
+                            .horizontal_alignment(HorizontalAlignment::Right)
+                            .children((
+                                TextBlock::new()
+                                    .text("开机自启")
+                                    .vertical_alignment(VerticalAlignment::Center),
+                                ToggleSwitch::new()
+                                    .is_on(self.autostart)
+                                    .min_width(0.0)
+                                    .on_toggled(context.callback(Msg::AutoStartToggled))
+                                    .slots([
+                                        SlotView::new(ToggleSwitchSlot::OnContent, ""),
+                                        SlotView::new(ToggleSwitchSlot::OffContent, ""),
+                                    ]),
+                            )),
                     )),
             );
 
