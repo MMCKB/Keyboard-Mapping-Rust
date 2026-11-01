@@ -30,6 +30,7 @@ pub enum Msg {
     Captured(Target, Option<u16>),
     ApplyScanmap,
     RemoveScanmap,
+    ExpanderToggled(bool),
 }
 
 struct Status {
@@ -48,6 +49,7 @@ pub struct KeyRemapperApp {
     capturing: Option<Target>,
     status: Option<Status>,
     scanmap_exists: bool,
+    expander_open: bool,
     hook: Arc<HookService>,
     hook_running: bool,
 }
@@ -77,6 +79,7 @@ impl Component for KeyRemapperApp {
             capturing: None,
             status: None,
             scanmap_exists: scanmap::exists(),
+            expander_open: false,
             hook,
             hook_running: running,
         };
@@ -213,6 +216,9 @@ impl Component for KeyRemapperApp {
                         ),
                     }
                 }
+            }
+            Msg::ExpanderToggled(open) => {
+                self.expander_open = open;
             }
             Msg::RemoveScanmap => match scanmap::remove() {
                 Ok(()) => {
@@ -405,7 +411,8 @@ impl Component for KeyRemapperApp {
             .grid_row(3)
             .horizontal_alignment(HorizontalAlignment::Stretch)
             .margin(Thickness::new(24.0, 12.0, 24.0, 0.0))
-            .is_expanded(false)
+            .is_expanded(self.expander_open)
+            .on_is_expanded_changed(context.callback(Msg::ExpanderToggled))
             .slots([
                 SlotView::new(ExpanderSlot::Header, expander_header),
                 SlotView::new(ExpanderSlot::Content, expander_content),
@@ -504,7 +511,7 @@ impl Component for KeyRemapperApp {
         let overlay: View = Border::new()
             .grid_row(0)
             .grid_row_span(5)
-            .background(ThemeBrush::SolidBackground)
+            .background(Color::argb(0x59, 0, 0, 0))
             .content(
                 Border::new()
                     .width(440.0)
