@@ -270,20 +270,16 @@ impl Component for KeyRemapperApp {
             .text_wrapping(TextWrapping::Wrap);
         let title_block = StackPanel::new().spacing(2.0).children((title, subtitle));
 
-        let enable_switch = StackPanel::new()
-            .orientation(Orientation::Horizontal)
-            .spacing(8.0)
+        let enable_switch = ToggleSwitch::new()
+            .is_on(self.enabled)
+            .min_height(52.0)
             .vertical_alignment(VerticalAlignment::Center)
-            .children((
-                TextBlock::new().text("启用映射"),
-                ToggleSwitch::new()
-                    .is_on(self.enabled)
-                    .on_toggled(context.callback(Msg::EnableToggled))
-                    .slots([
-                        SlotView::new(ToggleSwitchSlot::OnContent, ""),
-                        SlotView::new(ToggleSwitchSlot::OffContent, ""),
-                    ]),
-            ));
+            .on_toggled(context.callback(Msg::EnableToggled))
+            .slots([
+                SlotView::new(ToggleSwitchSlot::Header, "启用映射"),
+                SlotView::new(ToggleSwitchSlot::OnContent, ""),
+                SlotView::new(ToggleSwitchSlot::OffContent, ""),
+            ]);
 
         let header = Border::new()
             .grid_row(0)
@@ -337,7 +333,7 @@ impl Component for KeyRemapperApp {
         let bars_area = Border::new()
             .grid_row(1)
             .padding(Thickness::new(24.0, 12.0, 24.0, 0.0))
-            .content(StackPanel::new().spacing(8.0).keyed_children(bars));
+            .content(StackPanel::new().spacing(10.0).keyed_children(bars));
 
         // ---- 映射列表 ----
         let list: View = if self.mappings.is_empty() {
@@ -348,8 +344,9 @@ impl Component for KeyRemapperApp {
                     TextBlock::new()
                         .text("还没有映射规则。点击下方「添加映射」：先按要被替换的键，再按想要的键，映射立即生效、无需重启。")
                         .text_wrapping(TextWrapping::Wrap)
-                        .horizontal_alignment(HorizontalAlignment::Center)
-                        .vertical_alignment(VerticalAlignment::Center)
+                        .horizontal_alignment(HorizontalAlignment.Center)
+                        .vertical_alignment(VerticalAlignment.Center)
+                        .max_width(360.0)
                         .opacity(0.7),
                 )
         } else {
@@ -368,16 +365,18 @@ impl Component for KeyRemapperApp {
         };
 
         // ---- 系统级映射 ----
-        let expander_header = TextBlock::new()
-            .text("系统级映射（写入系统，无需运行本软件）")
-            .font_weight(FontWeight::SEMI_BOLD);
-
-        let expander_content = StackPanel::new().spacing(12.0).children((
+        let expander_header = StackPanel::new().spacing(2.0).children((
+            TextBlock::new()
+                .text("系统级映射（写入系统，无需运行本软件）")
+                .font_weight(FontWeight::SEMI_BOLD),
             TextBlock::new()
                 .text("写入键盘驱动层（注册表 Scancode Map），重启电脑后永久生效；之后无需开机自启、不运行任何软件也保持映射。需要管理员权限。")
                 .font_size(12.0)
                 .opacity(0.75)
                 .text_wrapping(TextWrapping::Wrap),
+        ));
+
+        let expander_content = StackPanel::new().spacing(12.0).children((
             StackPanel::new()
                 .orientation(Orientation::Horizontal)
                 .spacing(8.0)
@@ -435,22 +434,26 @@ impl Component for KeyRemapperApp {
                             .grid_column(0)
                             .style(ButtonStyle::Accent)
                             .on_click(context.message(Msg::AddClicked))
-                            .content("添加映射"),
-                        StackPanel::new()
+                            .content(
+                                StackPanel::new()
+                                    .orientation(Orientation::Horizontal)
+                                    .spacing(8.0)
+                                    .children((
+                                        FontIcon::new().glyph("\u{E710}"),
+                                        TextBlock::new().text("添加映射"),
+                                    )),
+                            ),
+                        ToggleSwitch::new()
                             .grid_column(2)
-                            .orientation(Orientation::Horizontal)
-                            .spacing(8.0)
+                            .is_on(self.autostart)
+                            .min_height(52.0)
                             .vertical_alignment(VerticalAlignment::Center)
-                            .children((
-                                TextBlock::new().text("开机自启"),
-                                ToggleSwitch::new()
-                                    .is_on(self.autostart)
-                                    .on_toggled(context.callback(Msg::AutoStartToggled))
-                                    .slots([
-                                        SlotView::new(ToggleSwitchSlot::OnContent, ""),
-                                        SlotView::new(ToggleSwitchSlot::OffContent, ""),
-                                    ]),
-                            )),
+                            .on_toggled(context.callback(Msg::AutoStartToggled))
+                            .slots([
+                                SlotView::new(ToggleSwitchSlot::Header, "开机自启"),
+                                SlotView::new(ToggleSwitchSlot::OnContent, ""),
+                                SlotView::new(ToggleSwitchSlot::OffContent, ""),
+                            ]),
                     )),
             );
 
@@ -596,6 +599,8 @@ impl KeyRemapperApp {
 fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) -> View {
     let from_badge = Border::new()
         .background(ThemeBrush::CardBackground)
+        .border_brush(ThemeBrush::CardStroke)
+        .border_thickness(Thickness::uniform(1.0))
         .corner_radius(CornerRadius::uniform(6.0))
         .padding(Thickness::xy(10.0, 3.0))
         .content(
@@ -604,7 +609,11 @@ fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) 
                 .font_weight(FontWeight::SEMI_BOLD),
         );
 
-    let arrow = TextBlock::new().text("→").font_size(16.0).opacity(0.6);
+    let arrow = TextBlock::new()
+        .text("→")
+        .font_size(14.0)
+        .opacity(0.6)
+        .vertical_alignment(VerticalAlignment::Center);
 
     let to_badge = Border::new()
         .background(ThemeBrush::Accent)
@@ -613,7 +622,8 @@ fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) 
         .content(
             TextBlock::new()
                 .text(mapping.to_name.clone())
-                .font_weight(FontWeight::SEMI_BOLD),
+                .font_weight(FontWeight::SEMI_BOLD)
+                .foreground(ThemeBrush::AccentText),
         );
 
     let from_vk = mapping.from_vk;
@@ -621,7 +631,7 @@ fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) 
         .style(ButtonStyle::Subtle)
         .vertical_alignment(VerticalAlignment::Center)
         .on_click(context.callback(move |_: ()| Msg::Delete(from_vk)))
-        .content("删除");
+        .content(SymbolIcon::new().symbol(Symbol::Delete));
 
     Border::new()
         .background(ThemeBrush::CardBackground)
