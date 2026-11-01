@@ -23,7 +23,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -32,7 +32,7 @@ jobs:
         run: rustc --version --verbose
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -60,7 +60,7 @@ jobs:
           Get-ChildItem publish -Recurse | Select-Object FullName, Length
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KeyRemapper-win-x64
           path: KeyRemapper-win-x64.zip

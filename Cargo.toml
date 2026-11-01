@@ -1,7 +1,7 @@
 [package]
 name = "keyremapper"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
 rust-version = "1.95"
 description = "键盘映射 - Windows 按键重映射工具（Rust + WinUI 3）"
 license = "MIT"
