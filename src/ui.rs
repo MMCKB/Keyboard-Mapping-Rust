@@ -344,8 +344,8 @@ impl Component for KeyRemapperApp {
                     TextBlock::new()
                         .text("还没有映射规则。点击下方「添加映射」：先按要被替换的键，再按想要的键，映射立即生效、无需重启。")
                         .text_wrapping(TextWrapping::Wrap)
-                        .horizontal_alignment(HorizontalAlignment.Center)
-                        .vertical_alignment(VerticalAlignment.Center)
+                        .horizontal_alignment(HorizontalAlignment::Center)
+                        .vertical_alignment(VerticalAlignment::Center)
                         .max_width(360.0)
                         .opacity(0.7),
                 )
