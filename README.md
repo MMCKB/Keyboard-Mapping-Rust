@@ -59,6 +59,11 @@ cargo build --release
 推送到 `main` 后 GitHub Actions 自动构建；在 Actions 页面手动触发（Run workflow）时，
 可选择同时创建 Release 并上传 `KeyRemapper-win-x64.zip`。
 
+## 体积
+
+ 按体积优化： +  +  +  + ，
+exe 约 1.3 MB。用 nightly 的  重编标准库还能再压到约 1.15 MB，但需要 nightly 工具链，CI 不采用。
+
 ## 运行要求
 
 - Windows 10 1809 及以上 / Windows 11
