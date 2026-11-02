@@ -2,6 +2,7 @@
 
 mod autostart;
 mod hook;
+mod keyboard;
 mod keys;
 mod log;
 mod scanmap;

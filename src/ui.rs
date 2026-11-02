@@ -10,7 +10,7 @@ use windows_reactor::*;
 use crate::hook::HookService;
 use crate::scanmap::{self, ScanmapError};
 use crate::settings::{self, AppSettings, KeyMapping};
-use crate::{autostart, keys, log};
+use crate::{autostart, keyboard, keys, log};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -31,6 +31,9 @@ pub enum Msg {
     ApplyScanmap,
     RemoveScanmap,
     ExpanderToggled(bool),
+    OpenTester,
+    CloseTester,
+    TesterPoll(Vec<u16>),
 }
 
 struct Status {
@@ -50,6 +53,8 @@ pub struct KeyRemapperApp {
     status: Option<Status>,
     scanmap_exists: bool,
     expander_open: bool,
+    tester_open: bool,
+    pressed: Vec<u16>,
     hook: Arc<HookService>,
     hook_running: bool,
 }
@@ -80,6 +85,8 @@ impl Component for KeyRemapperApp {
             status: None,
             scanmap_exists: scanmap::exists(),
             expander_open: false,
+            tester_open: false,
+            pressed: Vec::new(),
             hook,
             hook_running: running,
         };
@@ -119,6 +126,11 @@ impl Component for KeyRemapperApp {
                 }
             }
             Msg::AddClicked => {
+                if self.tester_open {
+                    self.tester_open = false;
+                    self.pressed.clear();
+                    self.hook.set_tester(false);
+                }
                 self.dialog_open = true;
                 self.from_vk = None;
                 self.to_vk = None;
@@ -219,6 +231,43 @@ impl Component for KeyRemapperApp {
             }
             Msg::ExpanderToggled(open) => {
                 self.expander_open = open;
+            }
+            Msg::OpenTester => {
+                if self.dialog_open {
+                    self.close_dialog();
+                }
+                if self.hook.start() {
+                    self.hook.set_tester(true);
+                    self.tester_open = true;
+                    self.pressed.clear();
+                    self.spawn_tester_poll(context);
+                } else {
+                    self.set_status(
+                        "键盘钩子安装失败，无法进行按键测试。",
+                        InfoBarSeverity::Error,
+                    );
+                }
+            }
+            Msg::CloseTester => {
+                self.tester_open = false;
+                self.pressed.clear();
+                self.hook.set_tester(false);
+                self.refresh_hook();
+            }
+            Msg::TesterPoll(keys) => {
+                if !self.tester_open {
+                    return;
+                }
+                // 测试期间所有按键都被钩子吞掉，Esc 由这里处理成关闭。
+                if keys.contains(&0x1B) {
+                    self.tester_open = false;
+                    self.pressed.clear();
+                    self.hook.set_tester(false);
+                    self.refresh_hook();
+                    return;
+                }
+                self.pressed = keys;
+                self.spawn_tester_poll(context);
             }
             Msg::RemoveScanmap => match scanmap::remove() {
                 Ok(()) => {
@@ -438,19 +487,28 @@ impl Component for KeyRemapperApp {
                     ])
                     .column_spacing(12.0)
                     .children((
-                        Button::new()
+                        StackPanel::new()
                             .grid_column(0)
-                            .style(ButtonStyle::Accent)
-                            .on_click(context.message(Msg::AddClicked))
-                            .content(
-                                StackPanel::new()
-                                    .orientation(Orientation::Horizontal)
-                                    .spacing(8.0)
-                                    .children((
-                                        FontIcon::new().glyph("\u{E710}"),
-                                        TextBlock::new().text("添加映射"),
-                                    )),
-                            ),
+                            .orientation(Orientation::Horizontal)
+                            .spacing(8.0)
+                            .children((
+                                Button::new()
+                                    .style(ButtonStyle::Accent)
+                                    .on_click(context.message(Msg::AddClicked))
+                                    .content(
+                                        StackPanel::new()
+                                            .orientation(Orientation::Horizontal)
+                                            .spacing(8.0)
+                                            .children((
+                                                FontIcon::new().glyph("\u{E710}"),
+                                                TextBlock::new().text("添加映射"),
+                                            )),
+                                    ),
+                                Button::new()
+                                    .style(ButtonStyle::Subtle)
+                                    .on_click(context.message(Msg::OpenTester))
+                                    .content("键盘测试"),
+                            )),
                         StackPanel::new()
                             .grid_column(2)
                             .orientation(Orientation::Horizontal)
@@ -554,6 +612,9 @@ impl Component for KeyRemapperApp {
         if self.dialog_open {
             children.push((5, overlay));
         }
+        if self.tester_open {
+            children.push((6, tester_overlay(&self.pressed, context)));
+        }
 
         Grid::new()
             .rows([
@@ -590,6 +651,14 @@ impl KeyRemapperApp {
         }
     }
 
+    fn spawn_tester_poll(&self, context: &ComponentContext<Self>) {
+        let hook = Arc::clone(&self.hook);
+        let _ = context.spawn_background(move |_cancel| {
+            std::thread::sleep(std::time::Duration::from_millis(70));
+            Msg::TesterPoll(hook.pressed_keys())
+        });
+    }
+
     fn close_dialog(&mut self) {
         self.dialog_open = false;
         self.capturing = None;
@@ -610,6 +679,48 @@ impl KeyRemapperApp {
             severity,
         });
     }
+}
+
+fn tester_overlay(pressed: &[u16], context: &mut ViewContext<KeyRemapperApp>) -> View {
+    Border::new()
+        .grid_row(0)
+        .grid_row_span(5)
+        .background(Color::argb(0x4D, 0, 0, 0))
+        .content(
+            Border::new()
+                .width(588.0)
+                .horizontal_alignment(HorizontalAlignment::Center)
+                .vertical_alignment(VerticalAlignment::Center)
+                .background(ThemeBrush::SolidBackground)
+                .border_brush(ThemeBrush::CardStroke)
+                .border_thickness(Thickness::uniform(1.0))
+                .corner_radius(CornerRadius::uniform(8.0))
+                .padding(Thickness::uniform(16.0))
+                .content(
+                    StackPanel::new().spacing(12.0).children((
+                        TextBlock::new()
+                            .text("键盘测试")
+                            .font_size(20.0)
+                            .font_weight(FontWeight::SEMI_BOLD),
+                        TextBlock::new()
+                            .text("按下任意键，对应键位会高亮；按 Esc 或点「关闭」退出。")
+                            .font_size(12.0)
+                            .opacity(0.7)
+                            .text_wrapping(TextWrapping::Wrap),
+                        keyboard::keyboard(pressed),
+                        StackPanel::new()
+                            .orientation(Orientation::Horizontal)
+                            .spacing(8.0)
+                            .horizontal_alignment(HorizontalAlignment::Right)
+                            .children((
+                                Button::new()
+                                    .style(ButtonStyle::Accent)
+                                    .on_click(context.message(Msg::CloseTester))
+                                    .content("关闭"),
+                            )),
+                    )),
+                ),
+        )
 }
 
 fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) -> View {

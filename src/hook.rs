@@ -11,7 +11,7 @@ use crate::keys::normalize;
 use crate::settings::KeyMapping;
 use crate::win32::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
@@ -26,6 +26,8 @@ pub struct HookService {
     shared: Mutex<Shared>,
     capture: Mutex<Option<mpsc::Sender<u16>>>,
     paused: AtomicBool,
+    tester: AtomicBool,
+    pressed: Mutex<HashSet<u16>>,
     hook: AtomicIsize,
     thread_id: AtomicU32,
     running: AtomicBool,
@@ -45,6 +47,8 @@ impl HookService {
                     }),
                     capture: Mutex::new(None),
                     paused: AtomicBool::new(false),
+                    tester: AtomicBool::new(false),
+                    pressed: Mutex::new(HashSet::new()),
                     hook: AtomicIsize::new(0),
                     thread_id: AtomicU32::new(0),
                     running: AtomicBool::new(false),
@@ -74,6 +78,21 @@ impl HookService {
         if paused {
             self.release_held();
         }
+    }
+
+    /// 键盘测试模式：吞掉所有按键，并把按下/抬起记录到集合里供界面轮询。
+    pub fn set_tester(&self, on: bool) {
+        self.tester.store(on, Ordering::SeqCst);
+        if let Ok(mut pressed) = self.pressed.lock() {
+            pressed.clear();
+        }
+    }
+
+    pub fn pressed_keys(&self) -> Vec<u16> {
+        self.pressed
+            .lock()
+            .map(|pressed| pressed.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     pub fn is_running(&self) -> bool {
@@ -217,6 +236,20 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             let injected = info.flags & (LLKHF_INJECTED | LLKHF_LOWER_IL_INJECTED) != 0;
             if !injected {
                 let down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+
+                // 0) 键盘测试：记录原始键码并吞掉按键，避免触发系统快捷键。
+                if state.tester.load(Ordering::Relaxed) {
+                    let raw = info.vk_code as u16;
+                    if let Ok(mut pressed) = state.pressed.lock() {
+                        if down {
+                            pressed.insert(raw);
+                        } else {
+                            pressed.remove(&raw);
+                        }
+                    }
+                    return 1;
+                }
+
                 let vk = normalize(info.vk_code as u16);
 
                 // 1) 捕获模式：吞掉这次按键并回报给 UI。
