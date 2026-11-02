@@ -12,10 +12,20 @@ use crate::settings::KeyMapping;
 use crate::win32::*;
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+/// 按键抬起后的余辉时间，保证快速点按也能看到高亮。
+const GLOW: std::time::Duration = std::time::Duration::from_millis(250);
+
+#[derive(Default)]
+struct TesterState {
+    pressed: HashSet<u16>,
+    last_seen: HashMap<u16, Instant>,
+}
 
 struct Shared {
     mappings: HashMap<u16, u16>,
@@ -27,7 +37,7 @@ pub struct HookService {
     capture: Mutex<Option<mpsc::Sender<u16>>>,
     paused: AtomicBool,
     tester: AtomicBool,
-    pressed: Mutex<HashSet<u16>>,
+    tester_state: Mutex<TesterState>,
     hook: AtomicIsize,
     thread_id: AtomicU32,
     running: AtomicBool,
@@ -48,7 +58,7 @@ impl HookService {
                     capture: Mutex::new(None),
                     paused: AtomicBool::new(false),
                     tester: AtomicBool::new(false),
-                    pressed: Mutex::new(HashSet::new()),
+                    tester_state: Mutex::new(TesterState::default()),
                     hook: AtomicIsize::new(0),
                     thread_id: AtomicU32::new(0),
                     running: AtomicBool::new(false),
@@ -83,16 +93,25 @@ impl HookService {
     /// 键盘测试模式：吞掉所有按键，并把按下/抬起记录到集合里供界面轮询。
     pub fn set_tester(&self, on: bool) {
         self.tester.store(on, Ordering::SeqCst);
-        if let Ok(mut pressed) = self.pressed.lock() {
-            pressed.clear();
+        if let Ok(mut state) = self.tester_state.lock() {
+            state.pressed.clear();
+            state.last_seen.clear();
         }
     }
 
+    /// 当前应该高亮的键：按住中的键，加上刚刚抬起、仍在余辉窗口内的键。
     pub fn pressed_keys(&self) -> Vec<u16> {
-        self.pressed
-            .lock()
-            .map(|pressed| pressed.iter().copied().collect())
-            .unwrap_or_default()
+        let Ok(state) = self.tester_state.lock() else {
+            return Vec::new();
+        };
+        let now = Instant::now();
+        let mut keys: HashSet<u16> = state.pressed.clone();
+        for (vk, seen) in &state.last_seen {
+            if now.duration_since(*seen) < GLOW {
+                keys.insert(*vk);
+            }
+        }
+        keys.into_iter().collect()
     }
 
     pub fn is_running(&self) -> bool {
@@ -240,11 +259,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 // 0) 键盘测试：记录原始键码并吞掉按键，避免触发系统快捷键。
                 if state.tester.load(Ordering::Relaxed) {
                     let raw = info.vk_code as u16;
-                    if let Ok(mut pressed) = state.pressed.lock() {
+                    if let Ok(mut tester) = state.tester_state.lock() {
+                        tester.last_seen.insert(raw, Instant::now());
                         if down {
-                            pressed.insert(raw);
+                            tester.pressed.insert(raw);
                         } else {
-                            pressed.remove(&raw);
+                            tester.pressed.remove(&raw);
                         }
                     }
                     return 1;
