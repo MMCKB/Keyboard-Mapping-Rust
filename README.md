@@ -43,7 +43,9 @@ src/
   log.rs        启动日志与 panic 记录
   win32.rs      最小 Win32 FFI 声明
 assets/
-  app.ico       窗口图标（源码里以 base64 保存，CI 打包时还原）
+  app.ico       应用图标（由 tools/make_icon.py 生成，源码里以 base64 保存，CI 打包时还原）
+tools/
+  make_icon.py  图标生成脚本：纯代码绘制键盘线条图，不依赖任何外部素材
 ```
 
 ## 构建
