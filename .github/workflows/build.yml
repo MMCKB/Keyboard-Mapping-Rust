@@ -45,8 +45,6 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build (release)
-        env:
-          RUSTFLAGS: -Zunstable-options -Cpanic=immediate-abort
         run: cargo build --release -Z build-std=core,std
 
       - name: Package
