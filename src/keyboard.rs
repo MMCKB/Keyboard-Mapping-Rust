@@ -1,13 +1,12 @@
 //! 键盘测试用的 104 键布局渲染。
 //!
-//! 纯静态布局：每一行是一串键帽，按下的键用强调色高亮。
-//! 键位按 1u = 24 DIP 排版，整块宽度 544 DIP，放进 620 宽的窗口绰绰有余。
+//! 纯静态布局，尺寸由外部传入的 `unit`（1u 的边长）决定，窗口变大时整块键盘跟着放大。
+//! `pressed` 是物理按下的键（原始虚拟键码），`outputs` 是经过映射之后实际输出的键：
+//! 输出键实心高亮，被映射走的物理键用描边标出。
 
 use windows_reactor::*;
 
-const UNIT: f64 = 24.0;
 const GAP: f64 = 2.0;
-const FONT: f64 = 8.0;
 
 struct Key {
     vk: u16,
@@ -174,30 +173,35 @@ const NUMPAD_ROWS: &[&[Key]] = &[
     &[key(0x60, "0", 2.0), key(0x6E, ".", 1.0), gap(1.0)],
 ];
 
-/// 生成整块键盘。`pressed` 里是当前按下的虚拟键码（原始值，左右修饰键区分）。
-pub fn keyboard(pressed: &[u16]) -> View {
+/// 1u 对应的宽度：主键区 15u + 间距 8 + 导航区 3u + 间距 8 + 小键盘 4u。
+pub fn width_for(unit: f64) -> f64 {
+    unit * 22.0 + 16.0
+}
+
+/// 生成整块键盘。
+pub fn keyboard(pressed: &[u16], outputs: &[u16], unit: f64) -> View {
     let main = StackPanel::new().spacing(GAP).children((
-        row(ROW_F, pressed),
-        row(ROW_NUMBER, pressed),
-        row(ROW_TAB, pressed),
-        row(ROW_CAPS, pressed),
-        row(ROW_SHIFT, pressed),
-        row(ROW_BOTTOM, pressed),
+        row(ROW_F, pressed, outputs, unit),
+        row(ROW_NUMBER, pressed, outputs, unit),
+        row(ROW_TAB, pressed, outputs, unit),
+        row(ROW_CAPS, pressed, outputs, unit),
+        row(ROW_SHIFT, pressed, outputs, unit),
+        row(ROW_BOTTOM, pressed, outputs, unit),
     ));
 
     let mut nav_children: Vec<(u32, View)> = Vec::new();
     for (index, keys) in NAV_ROWS.iter().copied().enumerate() {
-        nav_children.push((index as u32, row(keys, pressed)));
+        nav_children.push((index as u32, row(keys, pressed, outputs, unit)));
     }
     for index in NAV_ROWS.len()..6 {
-        nav_children.push((index as u32, row(&[], pressed)));
+        nav_children.push((index as u32, blank_row(unit)));
     }
     let nav = StackPanel::new().spacing(GAP).keyed_children(nav_children);
 
     let mut numpad_children: Vec<(u32, View)> = Vec::new();
-    numpad_children.push((0, row(&[], pressed)));
+    numpad_children.push((0, blank_row(unit)));
     for (index, keys) in NUMPAD_ROWS.iter().copied().enumerate() {
-        numpad_children.push((index as u32 + 1, row(keys, pressed)));
+        numpad_children.push((index as u32 + 1, row(keys, pressed, outputs, unit)));
     }
     let numpad = StackPanel::new().spacing(GAP).keyed_children(numpad_children);
 
@@ -207,17 +211,17 @@ pub fn keyboard(pressed: &[u16]) -> View {
         .children((main, nav, numpad))
 }
 
-fn row(keys: &[Key], pressed: &[u16]) -> View {
-    if keys.is_empty() {
-        return Border::new()
-            .height(UNIT - GAP)
-            .width(UNIT * 3.0 - GAP)
-            .into();
-    }
+fn blank_row(unit: f64) -> View {
+    Border::new()
+        .height(unit - GAP)
+        .width(unit * 3.0 - GAP)
+        .into()
+}
 
+fn row(keys: &[Key], pressed: &[u16], outputs: &[u16], unit: f64) -> View {
     let mut children: Vec<(u32, View)> = Vec::with_capacity(keys.len());
     for (index, key) in keys.iter().enumerate() {
-        children.push((index as u32, keycap(key, pressed)));
+        children.push((index as u32, keycap(key, pressed, outputs, unit)));
     }
     StackPanel::new()
         .orientation(Orientation::Horizontal)
@@ -225,20 +229,29 @@ fn row(keys: &[Key], pressed: &[u16]) -> View {
         .keyed_children(children)
 }
 
-fn keycap(key: &Key, pressed: &[u16]) -> View {
-    let active = key.vk != 0 && pressed.contains(&key.vk);
+fn keycap(key: &Key, pressed: &[u16], outputs: &[u16], unit: f64) -> View {
+    let is_output = key.vk != 0 && outputs.contains(&key.vk);
+    let is_physical = key.vk != 0 && pressed.contains(&key.vk);
+
+    let background = if is_output {
+        ThemeBrush::Accent
+    } else {
+        ThemeBrush::CardBackground
+    };
+    // 被映射走的物理键：描边提示「按下了，但输出不是它」。
+    let border_brush = if is_output || is_physical {
+        ThemeBrush::Accent
+    } else {
+        ThemeBrush::CardStroke
+    };
 
     let border = Border::new()
-        .width(key.units * UNIT - GAP)
-        .height(UNIT - GAP)
+        .width(key.units * unit - GAP)
+        .height(unit - GAP)
         .corner_radius(CornerRadius::uniform(3.0))
         .border_thickness(Thickness::uniform(1.0))
-        .border_brush(ThemeBrush::CardStroke)
-        .background(if active {
-            ThemeBrush::Accent
-        } else {
-            ThemeBrush::CardBackground
-        });
+        .border_brush(border_brush)
+        .background(background);
 
     if key.label.is_empty() {
         return border.into();
@@ -246,10 +259,10 @@ fn keycap(key: &Key, pressed: &[u16]) -> View {
 
     let text = TextBlock::new()
         .text(key.label)
-        .font_size(FONT)
+        .font_size((unit * 0.34).clamp(7.0, 11.0))
         .horizontal_alignment(HorizontalAlignment::Center)
         .vertical_alignment(VerticalAlignment::Center)
-        .foreground(if active {
+        .foreground(if is_output {
             ThemeBrush::AccentText
         } else {
             ThemeBrush::PrimaryText

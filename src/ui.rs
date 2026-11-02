@@ -4,6 +4,7 @@
 //! Reactor 负责把视图树协调到原生 WinUI 控件上。
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use windows_reactor::*;
 
@@ -34,6 +35,8 @@ pub enum Msg {
     OpenTester,
     CloseTester,
     TesterPoll(Vec<u16>),
+    WindowSized(WindowSize),
+    ModalFade,
 }
 
 struct Status {
@@ -55,6 +58,10 @@ pub struct KeyRemapperApp {
     expander_open: bool,
     tester_open: bool,
     pressed: Vec<u16>,
+    last_pair: Option<(u16, u16)>,
+    window_w: f64,
+    window_h: f64,
+    overlay_alpha: f64,
     hook: Arc<HookService>,
     hook_running: bool,
 }
@@ -87,6 +94,10 @@ impl Component for KeyRemapperApp {
             expander_open: false,
             tester_open: false,
             pressed: Vec::new(),
+            last_pair: None,
+            window_w: 620.0,
+            window_h: 700.0,
+            overlay_alpha: 1.0,
             hook,
             hook_running: running,
         };
@@ -132,6 +143,8 @@ impl Component for KeyRemapperApp {
                     self.hook.set_tester(false);
                 }
                 self.dialog_open = true;
+                self.overlay_alpha = 0.0;
+                self.spawn_modal_fade(context);
                 self.from_vk = None;
                 self.to_vk = None;
                 self.capturing = None;
@@ -240,6 +253,9 @@ impl Component for KeyRemapperApp {
                     self.hook.set_tester(true);
                     self.tester_open = true;
                     self.pressed.clear();
+                    self.last_pair = None;
+                    self.overlay_alpha = 0.0;
+                    self.spawn_modal_fade(context);
                     self.spawn_tester_poll(context);
                 } else {
                     self.set_status(
@@ -249,10 +265,25 @@ impl Component for KeyRemapperApp {
                 }
             }
             Msg::CloseTester => {
+                self.overlay_alpha = 1.0;
                 self.tester_open = false;
                 self.pressed.clear();
                 self.hook.set_tester(false);
                 self.refresh_hook();
+            }
+            Msg::WindowSized(size) => {
+                self.window_w = size.width;
+                self.window_h = size.height;
+            }
+            Msg::ModalFade => {
+                if !self.dialog_open && !self.tester_open {
+                    self.overlay_alpha = 1.0;
+                    return;
+                }
+                self.overlay_alpha = (self.overlay_alpha + 0.16).min(1.0);
+                if self.overlay_alpha < 1.0 {
+                    self.spawn_modal_fade(context);
+                }
             }
             Msg::TesterPoll(keys) => {
                 if !self.tester_open {
@@ -260,11 +291,16 @@ impl Component for KeyRemapperApp {
                 }
                 // 测试期间所有按键都被钩子吞掉，Esc 由这里处理成关闭。
                 if keys.contains(&0x1B) {
+                    self.overlay_alpha = 1.0;
                     self.tester_open = false;
                     self.pressed.clear();
                     self.hook.set_tester(false);
                     self.refresh_hook();
                     return;
+                }
+                if let Some(vk) = keys.iter().find(|vk| !self.pressed.contains(vk)).copied() {
+                    let mapped = self.map_key(vk);
+                    self.last_pair = Some((vk, mapped));
                 }
                 self.pressed = keys;
                 self.spawn_tester_poll(context);
@@ -298,6 +334,7 @@ impl Component for KeyRemapperApp {
     fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
         log_view();
         context.window_title("键盘映射");
+        context.on_window_size(context.callback(Msg::WindowSized));
 
         let mut visuals = WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)
@@ -583,15 +620,22 @@ impl Component for KeyRemapperApp {
                 )),
         ));
 
+        // 弹窗宽度跟随窗口，窗口放大时不会停在固定尺寸。
+        let window_w = self.window_w.max(360.0);
+        let window_h = self.window_h.max(400.0);
+        let dialog_width = (window_w - 96.0).clamp(360.0, 560.0);
+
         // 弹窗用页面内浮层实现：ContentDialog 在非打包 WinUI 里需要 XamlRoot，
         // 作为普通子节点挂载时无法弹出（fragment 方式则会直接崩溃）。
         let overlay: View = Border::new()
             .grid_row(0)
             .grid_row_span(5)
             .background(Color::argb(0x4D, 0, 0, 0))
+            .opacity(self.overlay_alpha)
+            .exit_transition(ExitTransition::fade(Duration::from_millis(140)))
             .content(
                 Border::new()
-                    .width(440.0)
+                    .width(dialog_width)
                     .horizontal_alignment(HorizontalAlignment::Center)
                     .vertical_alignment(VerticalAlignment::Center)
                     .background(ThemeBrush::SolidBackground)
@@ -613,7 +657,7 @@ impl Component for KeyRemapperApp {
             children.push((5, overlay));
         }
         if self.tester_open {
-            children.push((6, tester_overlay(&self.pressed, context)));
+            children.push((6, self.tester_overlay(context, window_w, window_h)));
         }
 
         Grid::new()
@@ -651,6 +695,111 @@ impl KeyRemapperApp {
         }
     }
 
+    fn spawn_modal_fade(&self, context: &ComponentContext<Self>) {
+        let _ = context.spawn_background(move |_cancel| {
+            std::thread::sleep(Duration::from_millis(16));
+            Msg::ModalFade
+        });
+    }
+
+    /// 单个物理键在当前映射下实际输出的键（展开左右修饰键）。
+    fn map_key(&self, vk: u16) -> u16 {
+        if !self.enabled {
+            return vk;
+        }
+        for mapping in &self.mappings {
+            if keys::normalize(mapping.from_vk) == keys::normalize(vk) {
+                return keys::normalize(mapping.to_vk);
+            }
+        }
+        vk
+    }
+
+    /// 键盘测试要实心高亮的键：物理键经映射后的结果。
+    fn tester_outputs(&self) -> Vec<u16> {
+        let mut outputs = Vec::new();
+        for vk in &self.pressed {
+            let mapped = self.map_key(*vk);
+            match mapped {
+                0x10 => outputs.extend([0xA0u16, 0xA1]),
+                0x11 => outputs.extend([0xA2u16, 0xA3]),
+                0x12 => outputs.extend([0xA4u16, 0xA5]),
+                other => outputs.push(other),
+            }
+        }
+        outputs
+    }
+
+    fn last_line(&self) -> String {
+        match self.last_pair {
+            Some((from, to)) if keys::normalize(from) != keys::normalize(to) => {
+                format!("最近：{} → {}", keys::name(from), keys::name(to))
+            }
+            Some((from, _)) => format!("最近：{}", keys::name(from)),
+            None => "最近：按下任意键".to_string(),
+        }
+    }
+
+    fn tester_overlay(
+        &self,
+        context: &mut ViewContext<Self>,
+        window_w: f64,
+        window_h: f64,
+    ) -> View {
+        let unit = (((window_w - 96.0) - 16.0) / 22.0)
+            .min((window_h - 250.0) / 6.0)
+            .clamp(16.0, 34.0);
+        let card_width = keyboard::width_for(unit) + 32.0;
+        let outputs = self.tester_outputs();
+
+        Border::new()
+            .grid_row(0)
+            .grid_row_span(5)
+            .background(Color::argb(0x4D, 0, 0, 0))
+            .opacity(self.overlay_alpha)
+            .exit_transition(ExitTransition::fade(Duration::from_millis(140)))
+            .content(
+                Border::new()
+                    .width(card_width)
+                    .horizontal_alignment(HorizontalAlignment::Center)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .background(ThemeBrush::SolidBackground)
+                    .border_brush(ThemeBrush::CardStroke)
+                    .border_thickness(Thickness::uniform(1.0))
+                    .corner_radius(CornerRadius::uniform(8.0))
+                    .padding(Thickness::uniform(16.0))
+                    .content(
+                        StackPanel::new().spacing(12.0).children((
+                            TextBlock::new()
+                                .text("键盘测试")
+                                .font_size(20.0)
+                                .font_weight(FontWeight::SEMI_BOLD),
+                            TextBlock::new()
+                                .text(self.last_line())
+                                .font_size(12.0)
+                                .opacity(0.75)
+                                .text_wrapping(TextWrapping::Wrap),
+                            keyboard::keyboard(&self.pressed, &outputs, unit),
+                            TextBlock::new()
+                                .text("实心键为映射后的输出，描边键为被映射走的物理键；按 Esc 或点「关闭」退出。")
+                                .font_size(11.0)
+                                .opacity(0.6)
+                                .text_wrapping(TextWrapping::Wrap),
+                            StackPanel::new()
+                                .orientation(Orientation::Horizontal)
+                                .spacing(8.0)
+                                .horizontal_alignment(HorizontalAlignment::Right)
+                                .children((
+                                    Button::new()
+                                        .style(ButtonStyle::Accent)
+                                        .on_click(context.message(Msg::CloseTester))
+                                        .content("关闭"),
+                                )),
+                        )),
+                    ),
+            )
+    }
+
     fn spawn_tester_poll(&self, context: &ComponentContext<Self>) {
         let hook = Arc::clone(&self.hook);
         let _ = context.spawn_background(move |_cancel| {
@@ -660,6 +809,7 @@ impl KeyRemapperApp {
     }
 
     fn close_dialog(&mut self) {
+        self.overlay_alpha = 1.0;
         self.dialog_open = false;
         self.capturing = None;
         self.hook.clear_capture();
@@ -679,48 +829,6 @@ impl KeyRemapperApp {
             severity,
         });
     }
-}
-
-fn tester_overlay(pressed: &[u16], context: &mut ViewContext<KeyRemapperApp>) -> View {
-    Border::new()
-        .grid_row(0)
-        .grid_row_span(5)
-        .background(Color::argb(0x4D, 0, 0, 0))
-        .content(
-            Border::new()
-                .width(588.0)
-                .horizontal_alignment(HorizontalAlignment::Center)
-                .vertical_alignment(VerticalAlignment::Center)
-                .background(ThemeBrush::SolidBackground)
-                .border_brush(ThemeBrush::CardStroke)
-                .border_thickness(Thickness::uniform(1.0))
-                .corner_radius(CornerRadius::uniform(8.0))
-                .padding(Thickness::uniform(16.0))
-                .content(
-                    StackPanel::new().spacing(12.0).children((
-                        TextBlock::new()
-                            .text("键盘测试")
-                            .font_size(20.0)
-                            .font_weight(FontWeight::SEMI_BOLD),
-                        TextBlock::new()
-                            .text("按下任意键，对应键位会高亮；按 Esc 或点「关闭」退出。")
-                            .font_size(12.0)
-                            .opacity(0.7)
-                            .text_wrapping(TextWrapping::Wrap),
-                        keyboard::keyboard(pressed),
-                        StackPanel::new()
-                            .orientation(Orientation::Horizontal)
-                            .spacing(8.0)
-                            .horizontal_alignment(HorizontalAlignment::Right)
-                            .children((
-                                Button::new()
-                                    .style(ButtonStyle::Accent)
-                                    .on_click(context.message(Msg::CloseTester))
-                                    .content("关闭"),
-                            )),
-                    )),
-                ),
-        )
 }
 
 fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) -> View {
@@ -765,6 +873,7 @@ fn mapping_row(mapping: &KeyMapping, context: &mut ViewContext<KeyRemapperApp>) 
         .border_brush(ThemeBrush::CardStroke)
         .border_thickness(Thickness::uniform(1.0))
         .corner_radius(CornerRadius::uniform(8.0))
+        .exit_transition(ExitTransition::fade(Duration::from_millis(120)))
         .padding(Thickness::new(16.0, 10.0, 16.0, 10.0))
         .margin(Thickness::new(0.0, 3.0, 0.0, 3.0))
         .content(
