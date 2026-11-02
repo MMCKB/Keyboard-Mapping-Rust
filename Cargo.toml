@@ -11,6 +11,9 @@ repository = "https://github.com/MMCKB/Keyboard-Mapping-Rust"
 name = "KeyRemapper"
 path = "src/main.rs"
 
+[build-dependencies]
+winresource = "0.1"
+
 [dependencies]
 windows-reactor = "0.100"
 serde = { version = "1", features = ["derive"] }
