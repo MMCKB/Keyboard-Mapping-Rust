@@ -61,8 +61,9 @@ cargo build --release
 
 ## 体积
 
- 按体积优化： +  +  +  + ，
-exe 约 1.3 MB。用 nightly 的  重编标准库还能再压到约 1.15 MB，但需要 nightly 工具链，CI 不采用。
+`[profile.release]` 按体积优化：`opt-level = "z"` + `lto = true` + `codegen-units = 1` + `panic = "abort"` + `strip = true`，
+exe 约 1.3 MB（压缩包约 600 KB）。用 nightly 的 `-Z build-std` 重编标准库还能再压到约 1.15 MB，
+但需要 nightly 工具链，CI 不采用。
 
 ## 运行要求
 
