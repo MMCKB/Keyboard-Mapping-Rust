@@ -12,7 +12,6 @@ use crate::settings::KeyMapping;
 use crate::win32::*;
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
